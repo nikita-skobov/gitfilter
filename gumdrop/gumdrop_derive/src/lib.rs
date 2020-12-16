@@ -347,6 +347,7 @@ fn derive_optionscore_struct(
             action: action,
             long: opts.long,
             short: opts.short,
+            skip: opts.skip,
             no_short: opts.no_short,
             required: opts.required,
             meta: opts.meta,
@@ -897,6 +898,7 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
             action: action,
             long: opts.long,
             short: opts.short,
+            skip: opts.skip,
             no_short: opts.no_short,
             required: opts.required,
             meta: opts.meta,
@@ -908,6 +910,13 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
     // dont auto assign short options
 
     for opt in &options {
+        // dont add derived parsing code
+        // for this option if user doesnt
+        // want this to be parsed
+        if opt.skip {
+            continue;
+        }
+
         if opt.required {
             required.push(opt.field);
             let display = opt.display_form();
@@ -1223,6 +1232,7 @@ struct AttrOpts {
     no_help_flag: bool,
     no_short: bool,
     no_long: bool,
+    skip: bool,
     no_multi: bool,
     required: bool,
     not_required: bool,
@@ -1281,6 +1291,7 @@ struct Opt<'a> {
     action: Action,
     long: Option<String>,
     short: Option<char>,
+    skip: bool,
     no_short: bool,
     required: bool,
     help: Option<String>,
@@ -1510,6 +1521,7 @@ impl AttrOpts {
                             "no_multi" => self.no_multi = true,
                             "required" => self.required = true,
                             "not_required" => self.not_required = true,
+                            "skip" => self.skip = true,
                             _ => return Err(unexpected_meta_item(path.span()))
                         }
                         None => return Err(unexpected_meta_item(path.span()))
@@ -1573,6 +1585,10 @@ impl AttrOpts {
         }
         if self.multi.is_none() && defaults.no_multi {
             self.no_multi = true;
+        }
+
+        if self.skip {
+            self.no_help_flag = true;
         }
 
         if self.not_required {
@@ -2271,6 +2287,11 @@ fn make_usage(help: &Option<String>, free: &[FreeOpt], opts: &[Opt]) -> String {
         res.push_str("Optional arguments:\n");
 
         for opt in opts {
+            // dont include skipped args in usage
+            if opt.skip {
+                continue;
+            }
+
             res.push_str(&opt.usage(width));
             res.push('\n');
         }
