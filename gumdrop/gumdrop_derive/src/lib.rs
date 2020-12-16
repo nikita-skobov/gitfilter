@@ -872,8 +872,8 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
             short_names.push(short);
         }
 
-        if opts.help_flag || (!opts.no_help_flag &&
-                opts.long.as_ref().map(|s| &s[..]) == Some("help")) {
+        // dont treat -h or --help as a special variable
+        if opts.help_flag {
             help_flag.push(ident);
         }
 
@@ -905,19 +905,7 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
         });
     }
 
-    // Assign short names after checking all options.
-    // Thus, manual short names will take priority over automatic ones.
-    for opt in &mut options {
-        if opt.short.is_none() && !opt.no_short {
-            let short = make_short_name(&opt.field.to_string(), &short_names);
-
-            if let Some(short) = short {
-                short_names.push(short);
-            }
-
-            opt.short = short;
-        }
-    }
+    // dont auto assign short options
 
     for opt in &options {
         if opt.required {
@@ -990,8 +978,9 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
             }
         } else {
             quote!{
-                return ::std::result::Result::Err(
-                    ::gumdrop::Error::unexpected_free(_free))
+                // extra input is not an error
+                // return ::std::result::Result::Err(
+                //     ::gumdrop::Error::unexpected_free(_free))
             }
         };
 
@@ -1048,8 +1037,9 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
         }
     } else {
         quote!{
-            return ::std::result::Result::Err(
-                ::gumdrop::Error::unexpected_free(_free));
+            // extra input is not an error
+            // return ::std::result::Result::Err(
+            //     ::gumdrop::Error::unexpected_free(_free));
         }
     };
 
@@ -1153,8 +1143,9 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
                             #handle_free
                         }
                         _ => {
-                            return ::std::result::Result::Err(
-                                ::gumdrop::Error::unrecognized_option(_opt));
+                            // extra input is not an error
+                            // return ::std::result::Result::Err(
+                            //     ::gumdrop::Error::unrecognized_option(_opt));
                         }
                     }
                 }
