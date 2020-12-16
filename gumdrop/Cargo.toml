@@ -23,5 +23,3 @@ gumdrop_derive = { version = "0.8", path = "gumdrop_derive" }
 
 [dev-dependencies]
 assert_matches = "1.1"
-
-[workspace]
