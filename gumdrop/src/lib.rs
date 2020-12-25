@@ -382,6 +382,27 @@ pub trait Options {
         leading_spaces: Option<usize>,
         trailing_spaces: Option<usize>,
     ) -> String {
+        self.format_sub_usage_string_with_filters(
+            max_width,
+            leading_spaces,
+            trailing_spaces,
+            None
+        )
+    }
+
+    /// same as `format_sub_usage_string`, but allows specifying
+    /// a vec of filters that will be used to filter out certain
+    /// flags/options from appearing in the usage string.
+    /// if a single flag/option matches one of your provided
+    /// filters, it will not be included in the output string.
+    fn format_sub_usage_string_with_filters(
+        &self,
+        max_width: Option<usize>,
+        leading_spaces: Option<usize>,
+        trailing_spaces: Option<usize>,
+        filters: Option<Vec<&str>>,
+    ) -> String {
+        let filters = filters.unwrap_or(vec![]);
         let leading_spaces = leading_spaces.unwrap_or(4);
         let trailing_spaces = trailing_spaces.unwrap_or(4);
         let max_width = max_width.unwrap_or(usize::MAX);
@@ -395,6 +416,7 @@ pub trait Options {
                 leading_spaces,
                 trailing_spaces,
                 max_width,
+                &filters,
             );
             usage_string.push_str("FLAGS:\n");
             usage_string.push_str(&flag_strings);
@@ -413,6 +435,7 @@ pub trait Options {
                 leading_spaces,
                 trailing_spaces,
                 max_width,
+                &filters,
             );
             usage_string.push_str("OPTIONS:\n");
             usage_string.push_str(&arg_strings);
@@ -467,6 +490,7 @@ fn create_usage_lines(
     leading_spaces: usize,
     trailing_spaces: usize,
     max_width: usize,
+    filters: &Vec<&str>,
 ) -> String {
     let mut out_string = String::from("");
     let longest_name = usage_tuple_vec.iter().map(|(a, _)| a.len()).max();
@@ -475,6 +499,12 @@ fn create_usage_lines(
     let longest_name = longest_name.unwrap_or(6);
 
     for (names, help) in usage_tuple_vec {
+        let exists = filters.iter().map(|f| names.contains(f)).max();
+        if let Some(filter_exists) = exists {
+            if filter_exists {
+                continue;
+            }
+        }
         let mut current_width = leading_spaces;
         let this_name_len = names.len();
         let spaces_string = " ".repeat(leading_spaces);
