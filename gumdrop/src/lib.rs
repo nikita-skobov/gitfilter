@@ -173,6 +173,7 @@ pub use gumdrop_derive::*;
 use std::error::Error as StdError;
 use std::fmt;
 use std::slice::Iter;
+use std::iter::Peekable;
 use std::str::Chars;
 
 /// Represents an error encountered during argument parsing
@@ -209,7 +210,7 @@ pub enum ErrorKind {
 
 /// Parses options from a series of `&str`-like values.
 pub struct Parser<'a, S: 'a> {
-    args: Iter<'a, S>,
+    args: Peekable<Iter<'a, S>>,
     cur: Option<Chars<'a>>,
     style: ParsingStyle,
     terminated: bool,
@@ -770,7 +771,7 @@ impl<'a, S: 'a + AsRef<str>> Parser<'a, S> {
     /// element.
     pub fn new(args: &'a [S], style: ParsingStyle) -> Parser<'a, S> {
         Parser{
-            args: args.iter(),
+            args: args.iter().peekable(),
             cur: None,
             style: style,
             terminated: false,
@@ -836,7 +837,25 @@ impl<'a, S: 'a + AsRef<str>> Parser<'a, S> {
             }
         }
 
-        self.args.next().map(|s| s.as_ref())
+        // we peak the arg to not immediately
+        // remove it from the iterator
+        // we want to see if its another option
+        // like '-a' or '--something'. If so
+        // we return None because
+        // this next_arg should not be the next --option
+        // otherwise, we actually call self.args.next()
+        let argnext = self.args.peek();
+        match argnext {
+            None => self.args.next().map(|s| s.as_ref()),
+            Some(s) => {
+                let s_ref = s.as_ref();
+                if s_ref.starts_with('-') {
+                    None
+                } else {
+                    self.args.next().map(|s| s.as_ref())
+                }
+            }
+        }
     }
 }
 
