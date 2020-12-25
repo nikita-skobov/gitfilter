@@ -373,6 +373,9 @@ pub trait Options {
     /// should **not** end with a newline.
     fn self_usage(&self) -> &'static str;
 
+    /// returns a nicely formatted string containing only
+    /// the flag usage, and option usage. allows specifying max
+    /// width, and spaces in between the names/help strings.
     fn format_sub_usage_string(
         &self,
         max_width: Option<usize>,
@@ -411,6 +414,18 @@ pub trait Options {
         }
 
         usage_string
+    }
+
+    /// like `format_sub_usage_string` but uses sensible defaults:
+    /// max_width: 100
+    /// leading_spaces: 4
+    /// trailing_spaces: 4
+    fn format_sub_usage_string_sensible(&self) -> String {
+        self.format_sub_usage_string(
+            Some(100),
+            Some(4),
+            Some(4)
+        )
     }
 
     /// Returns a usage string for the named command.
