@@ -358,6 +358,12 @@ pub trait Options {
     /// `[("-h, --help", "This is the help string"), ...]`
     fn flag_usages(&self) -> Vec<(&'static str, &'static str)>;
 
+    /// Returns a vector of tuples of argument names and their help string.
+    /// similar to `flag_usages`, but this function is only for
+    /// options that are used with a value, ie:
+    /// `--input INPUT`
+    fn arg_usages(&self) -> Vec<(&'static str, &'static str)>;
+
     /// Returns a string showing usage and help for this options instance.
     ///
     /// In contrast to `usage`, this method will return usage for a subcommand,

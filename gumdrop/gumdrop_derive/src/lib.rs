@@ -739,6 +739,10 @@ fn derive_options_enum(ast: &DeriveInput, data: &DataEnum)
                 vec![]
             }
 
+            fn arg_usages(&self) -> Vec<(&'static str, &'static str)> {
+                vec![]
+            }
+
             fn self_usage(&self) -> &'static str {
                 #self_usage_impl
             }
@@ -970,7 +974,9 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
     let opts_help = default_opts.help.or(default_opts.doc);
     let usage = make_usage(&opts_help, &free, &options);
     let flag_usage = make_flag_usage(&options);
+    let arg_usage = make_arg_usage(&options);
     let flag_usage = flag_usage.iter().map(|(t1, t2)| quote! { (#t1, #t2) });
+    let arg_usage = arg_usage.iter().map(|(t1, t2)| quote! { (#t1, #t2) });
 
     let handle_free = if !free.is_empty() {
         let catch_all = if free.last().unwrap().action.is_push() {
@@ -1197,6 +1203,10 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
 
             fn flag_usages(&self) -> Vec<(&'static str, &'static str)> {
                 vec![ #(#flag_usage,)* ]
+            }
+
+            fn arg_usages(&self) -> Vec<(&'static str, &'static str)> {
+                vec![ #(#arg_usage,)* ]
             }
 
             fn self_usage(&self) -> &'static str {
@@ -2271,6 +2281,55 @@ fn make_flag_usage(opts: &[Opt]) -> Vec<(String, String)> {
             flag_names.push_str("--");
             flag_names.push_str(l);
         }
+
+        let usage = match opt.help {
+            Some(ref s) => s.clone(),
+            None => "".into(),
+        };
+
+        res.push((
+            flag_names,
+            usage,
+        ));
+    }
+
+    res
+}
+
+fn make_arg_usage(opts: &[Opt]) -> Vec<(String, String)> {
+    let mut res = vec![];
+
+    for opt in opts {
+        if !opt.action.takes_arg() {
+            continue;
+        }
+
+        // this option takes a value
+        let mut flag_names = String::from("");
+        if let Some(ref c) = opt.short {
+            flag_names.push('-');
+            flag_names.push(*c);
+        }
+        if let Some(ref l) = opt.long {
+            if flag_names.len() != 0 {
+                flag_names.push_str(", ");
+            }
+            flag_names.push_str("--");
+            flag_names.push_str(l);
+        }
+
+        // there should be a meta
+        // but just in case, if there is none,
+        // we will use the arg long to uppercase
+        let meta = match opt.meta {
+            Some(ref m) => m.clone(),
+            None => match opt.long {
+                Some(ref l) => l.clone().to_uppercase(),
+                None => "<VALUE>".into(),
+            }
+        };
+        flag_names.push(' ');
+        flag_names.push_str(&meta);
 
         let usage = match opt.help {
             Some(ref s) => s.clone(),
