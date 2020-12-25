@@ -735,6 +735,10 @@ fn derive_options_enum(ast: &DeriveInput, data: &DataEnum)
                 #usage
             }
 
+            fn flag_usages(&self) -> Vec<(&'static str, &'static str)> {
+                vec![]
+            }
+
             fn self_usage(&self) -> &'static str {
                 #self_usage_impl
             }
@@ -965,6 +969,8 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
     let name = &ast.ident;
     let opts_help = default_opts.help.or(default_opts.doc);
     let usage = make_usage(&opts_help, &free, &options);
+    let flag_usage = make_flag_usage(&options);
+    let flag_usage = flag_usage.iter().map(|(t1, t2)| quote! { (#t1, #t2) });
 
     let handle_free = if !free.is_empty() {
         let catch_all = if free.last().unwrap().action.is_push() {
@@ -1187,6 +1193,10 @@ fn derive_options_struct(ast: &DeriveInput, fields: &Fields)
 
             fn usage() -> &'static str {
                 #usage
+            }
+
+            fn flag_usages(&self) -> Vec<(&'static str, &'static str)> {
+                vec![ #(#flag_usage,)* ]
             }
 
             fn self_usage(&self) -> &'static str {
@@ -2237,6 +2247,43 @@ fn make_meta(name: &str, action: &Action) -> String {
     }
 
     name
+}
+
+fn make_flag_usage(opts: &[Opt]) -> Vec<(String, String)> {
+    let mut res = vec![];
+
+    for opt in opts {
+        // oops i dont know how to easily
+        // check for not Action::Switch :shrug:
+        if let Action::Switch = opt.action {} else { continue; }
+
+        // this option is a flag, add its usage
+        // to the flag usage vec
+        let mut flag_names = String::from("");
+        if let Some(ref c) = opt.short {
+            flag_names.push('-');
+            flag_names.push(*c);
+        }
+        if let Some(ref l) = opt.long {
+            if flag_names.len() != 0 {
+                flag_names.push_str(", ");
+            }
+            flag_names.push_str("--");
+            flag_names.push_str(l);
+        }
+
+        let usage = match opt.help {
+            Some(ref s) => s.clone(),
+            None => "".into(),
+        };
+
+        res.push((
+            flag_names,
+            usage,
+        ));
+    }
+
+    res
 }
 
 fn make_usage(help: &Option<String>, free: &[FreeOpt], opts: &[Opt]) -> String {

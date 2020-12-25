@@ -351,6 +351,13 @@ pub trait Options {
     /// should **not** end with a newline.
     fn usage() -> &'static str where Self: Sized;
 
+    /// Returns a vector of tuples of flag names and their help string.
+    /// This is useful if you want to implement your own help formatter
+    /// this vec only contains the options you declared of type bool
+    /// the returned vec might look something like:
+    /// `[("-h, --help", "This is the help string"), ...]`
+    fn flag_usages(&self) -> Vec<(&'static str, &'static str)>;
+
     /// Returns a string showing usage and help for this options instance.
     ///
     /// In contrast to `usage`, this method will return usage for a subcommand,
