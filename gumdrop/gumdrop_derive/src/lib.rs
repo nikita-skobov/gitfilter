@@ -2263,6 +2263,10 @@ fn make_flag_usage(opts: &[Opt]) -> Vec<(String, String)> {
     let mut res = vec![];
 
     for opt in opts {
+        if opt.skip {
+            continue;
+        }
+
         // oops i dont know how to easily
         // check for not Action::Switch :shrug:
         if let Action::Switch = opt.action {} else { continue; }
@@ -2300,6 +2304,10 @@ fn make_arg_usage(opts: &[Opt]) -> Vec<(String, String)> {
     let mut res = vec![];
 
     for opt in opts {
+        if opt.skip {
+            continue;
+        }
+
         if !opt.action.takes_arg() {
             continue;
         }
