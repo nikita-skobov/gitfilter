@@ -400,9 +400,14 @@ pub trait Options {
             usage_string.push_str(&flag_strings);
         }
 
-        usage_string.push('\n');
         let arg_usages = self.arg_usages();
         if ! arg_usages.is_empty() {
+            // if we have arg usages, AND flag usages
+            // make sure theres a newline between them
+            if ! flag_usages.is_empty() {
+                usage_string.push('\n');
+            }
+
             let arg_strings = create_usage_lines(
                 &arg_usages,
                 leading_spaces,
