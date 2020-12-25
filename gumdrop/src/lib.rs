@@ -373,6 +373,46 @@ pub trait Options {
     /// should **not** end with a newline.
     fn self_usage(&self) -> &'static str;
 
+    fn format_sub_usage_string(
+        &self,
+        max_width: Option<usize>,
+        leading_spaces: Option<usize>,
+        trailing_spaces: Option<usize>,
+    ) -> String {
+        let leading_spaces = leading_spaces.unwrap_or(4);
+        let trailing_spaces = trailing_spaces.unwrap_or(4);
+        let max_width = max_width.unwrap_or(usize::MAX);
+
+        let mut usage_string = String::from("");
+
+        let flag_usages = self.flag_usages();
+        if ! flag_usages.is_empty() {
+            let flag_strings = create_usage_lines(
+                &flag_usages,
+                leading_spaces,
+                trailing_spaces,
+                max_width,
+            );
+            usage_string.push_str("FLAGS:\n");
+            usage_string.push_str(&flag_strings);
+        }
+
+        usage_string.push('\n');
+        let arg_usages = self.arg_usages();
+        if ! arg_usages.is_empty() {
+            let arg_strings = create_usage_lines(
+                &arg_usages,
+                leading_spaces,
+                trailing_spaces,
+                max_width,
+            );
+            usage_string.push_str("OPTIONS:\n");
+            usage_string.push_str(&arg_strings);
+        }
+
+        usage_string
+    }
+
     /// Returns a usage string for the named command.
     ///
     /// If the named command does not exist, `None` is returned.
@@ -400,6 +440,61 @@ pub trait Options {
     /// Commands are separated by newlines. The string should **not** end with
     /// a newline.
     fn self_command_list(&self) -> Option<&'static str>;
+}
+
+fn create_usage_lines(
+    usage_tuple_vec: &Vec<(&'static str, &'static str)>,
+    leading_spaces: usize,
+    trailing_spaces: usize,
+    max_width: usize,
+) -> String {
+    let mut out_string = String::from("");
+    let longest_name = usage_tuple_vec.iter().map(|(a, _)| a.len()).max();
+    // it shouldnt be empty because we checked for emptyness above
+    // but just in case, use a sensible default
+    let longest_name = longest_name.unwrap_or(6);
+
+    for (names, help) in usage_tuple_vec {
+        let mut current_width = leading_spaces;
+        let this_name_len = names.len();
+        let spaces_string = " ".repeat(leading_spaces);
+        let between_spaces = longest_name - this_name_len + trailing_spaces;
+        current_width += this_name_len + between_spaces;
+        let start_line_at = current_width;
+        let between_spaces = " ".repeat(between_spaces);
+        let mut this_string = format!(
+            "{}{}{}",
+            spaces_string,
+            names,
+            between_spaces,
+        );
+
+        // try to split by word, and honor the users
+        // max_width requirement. Every time we pass the
+        // max width, add a new line, and add as many spaces
+        // as the first line started at, so that the
+        // next string lines up with the string above.
+        for word in help.split_ascii_whitespace() {
+            let word_len = word.len() + 1; // +1 because space
+            if current_width + word_len < max_width {
+                this_string.push_str(word);
+                this_string.push(' ');
+                current_width += word_len;
+            } else {
+                current_width = start_line_at;
+                this_string.push('\n');
+                let empty_spaces = " ".repeat(start_line_at);
+                this_string.push_str(&empty_spaces);
+                this_string.push_str(word);
+                this_string.push(' ');
+                current_width += word_len;
+            }
+        }
+        this_string.push('\n');
+        out_string.push_str(&this_string);
+    }
+
+    out_string
 }
 
 /// Implements a set of options parsed from command line arguments.
