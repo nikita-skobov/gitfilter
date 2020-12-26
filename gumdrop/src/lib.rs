@@ -175,6 +175,25 @@ use std::fmt;
 use std::slice::Iter;
 use std::iter::Peekable;
 use std::str::Chars;
+use std::str::FromStr;
+
+#[derive(Debug, Default)]
+pub struct Optional<T: From<String>> {
+    pub val: Option<T>,
+}
+
+impl<T: From<String>> FromStr for Optional<T> {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s_string = s.to_string();
+        let o = Optional {
+            val: Some(s_string.into())
+        };
+
+        Ok(o)
+    }
+}
 
 /// Represents an error encountered during argument parsing
 #[derive(Debug)]

@@ -1237,6 +1237,8 @@ enum Action {
     SetField(ParseMethod),
     /// Set `Option<T>` field
     SetOption(ParseMethod),
+    /// Set `Optional<T>` field
+    SetOptional(ParseMethod),
     /// Set field to `true`
     Switch,
 }
@@ -1356,6 +1358,14 @@ impl Action {
                         let tuple_len = tuple_len(param.unwrap());
 
                         Action::SetOption(ParseMethod{
+                            parse_fn: opts.parse.clone().unwrap_or_default(),
+                            tuple_len,
+                        })
+                    }
+                    "Optional" if param.is_some() => {
+                        let tuple_len = tuple_len(param.unwrap());
+
+                        Action::SetOptional(ParseMethod{
                             parse_fn: opts.parse.clone().unwrap_or_default(),
                             tuple_len,
                         })
@@ -1845,24 +1855,31 @@ impl<'a> Opt<'a> {
                 _result.#field += 1;
             },
             Push(meth, parse) => {
-                let act = parse.make_action_type();
+                let act = parse.make_action_type(false);
 
                 quote!{
                     _result.#field.#meth(#act);
                 }
             }
             SetField(parse) => {
-                let act = parse.make_action_type();
+                let act = parse.make_action_type(false);
 
                 quote!{
                     _result.#field = #act;
                 }
             }
             SetOption(parse) => {
-                let act = parse.make_action_type();
+                let act = parse.make_action_type(false);
 
                 quote!{
                     _result.#field = ::std::option::Option::Some(#act);
+                }
+            }
+            SetOptional(parse) => {
+                let act = parse.make_action_type(true);
+
+                quote!{
+                    _result.#field = ::gumdrop::Optional{ val: Some(#act) };
                 }
             }
             Switch => quote!{
@@ -2058,13 +2075,19 @@ impl Default for ParseFn {
 }
 
 impl ParseMethod {
-    fn make_action_type(&self) -> TokenStream2 {
+    fn make_action_type(&self, is_optional: bool) -> TokenStream2 {
         let parse = self.parse_fn.make_parse_action(None);
 
         match self.tuple_len {
             None => quote!{ {
-                let _arg = _parser.next_arg()
-                    .ok_or_else(|| ::gumdrop::Error::missing_argument(_opt))?;
+                let _arg = _parser.next_arg();
+                let _arg = if _arg.is_none() && #is_optional {
+                    Some("")
+                } else {
+                    _arg
+                };
+
+                let _arg = _arg.ok_or_else(|| ::gumdrop::Error::missing_argument(_opt))?;
 
                 #parse
             } },
