@@ -1263,6 +1263,7 @@ struct AttrOpts {
     meta: Option<String>,
     parse: Option<ParseFn>,
     default: Option<String>,
+    optional: bool,
     #[cfg(feature = "default_expr")]
     default_expr: Option<Expr>,
 
@@ -1357,18 +1358,17 @@ impl Action {
                     "Option" if param.is_some() => {
                         let tuple_len = tuple_len(param.unwrap());
 
-                        Action::SetOption(ParseMethod{
-                            parse_fn: opts.parse.clone().unwrap_or_default(),
-                            tuple_len,
-                        })
-                    }
-                    "Optional" if param.is_some() => {
-                        let tuple_len = tuple_len(param.unwrap());
-
-                        Action::SetOptional(ParseMethod{
-                            parse_fn: opts.parse.clone().unwrap_or_default(),
-                            tuple_len,
-                        })
+                        if opts.optional {
+                            Action::SetOptional(ParseMethod{
+                                parse_fn: opts.parse.clone().unwrap_or_default(),
+                                tuple_len,
+                            })
+                        } else {
+                            Action::SetOption(ParseMethod{
+                                parse_fn: opts.parse.clone().unwrap_or_default(),
+                                tuple_len,
+                            })
+                        }
                     }
                     _ => {
                         if let Some(meth) = &opts.multi {
@@ -1548,6 +1548,7 @@ impl AttrOpts {
                             "no_help_flag" => self.no_help_flag = true,
                             "no_short" => self.no_short = true,
                             "no_long" => self.no_long = true,
+                            "optional" => self.optional = true,
                             "no_multi" => self.no_multi = true,
                             "required" => self.required = true,
                             "not_required" => self.not_required = true,
@@ -1879,7 +1880,7 @@ impl<'a> Opt<'a> {
                 let act = parse.make_action_type(true);
 
                 quote!{
-                    _result.#field = ::gumdrop::Optional{ val: Some(#act) };
+                    _result.#field = ::std::option::Option::Some(#act);
                 }
             }
             Switch => quote!{
