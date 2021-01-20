@@ -1406,6 +1406,7 @@ impl Action {
         match self {
             Push(_, parse) |
             SetField(parse) |
+            SetOptional(parse) |
             SetOption(parse) => parse.takes_arg(),
             _ => false
         }
@@ -1919,6 +1920,13 @@ impl<'a> Opt<'a> {
                 let act = parse.make_action_type_arg();
 
                 quote!{
+                    _result.#field = ::std::option::Option::Some(#act);
+                }
+            }
+            SetOptional(parse) => {
+                let act = parse.make_action_type_arg();
+
+                quote! {
                     _result.#field = ::std::option::Option::Some(#act);
                 }
             }
