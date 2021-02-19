@@ -27,5 +27,8 @@ function teardown() {
     "$GITFILTERCLI" > "$COMPARE_PATH_ACTUAL"
 
     echo "Comparing $COMPARE_PATH to $COMPARE_PATH_ACTUAL"
+    echo "File sizes:"
+    echo "$(wc -c $COMPARE_PATH)"
+    echo "$(wc -c $COMPARE_PATH_ACTUAL)"
     cmp -s "$COMPARE_PATH" "$COMPARE_PATH_ACTUAL"
 }

@@ -1,0 +1,11 @@
+[package]
+name = "gitfilter"
+version = "0.1.0"
+authors = ["nikita-skobov"]
+edition = "2018"
+
+
+[dependencies]
+gumdrop = { path = "../gumdrop" }
+die = { path = "../die" }
+exechelper = { path = "../exechelper" }
