@@ -2,38 +2,19 @@ use std::io::{BufReader, Error, ErrorKind, BufRead, Read};
 use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
+use num_cpus;
 // use std::time::Instant;
 // use std::time::Duration;
 
 use exechelper;
 
+pub mod export_parser;
+// use export_parser::StructuredExportObject;
+
 pub enum ParseState {
     BeforeData,
     Data(usize),
     AfterData,
-}
-
-#[derive(Debug)]
-pub struct CommitInfo {
-    pub message: String,
-    pub metadata: String,
-}
-
-pub struct CommitPerson {
-    name: String,
-    email: String,
-    date: String,
-}
-
-pub struct CommitObject {
-    pub branch: String,
-    pub author: CommitPerson,
-    pub committer: CommitPerson,
-    pub message: String,
-    pub changes: String,
-    pub parents: String,
-    pub original_id: String,
-    pub encoding: String,
 }
 
 pub struct UnparsedFastExportObject {
@@ -68,16 +49,19 @@ pub fn parse_git_filter_export_with_callback(
     cb: impl FnMut(UnparsedFastExportObject)
 ) -> Result<(), Error>{
     // let now = Instant::now();
-    let with_or_without_data = if with_blobs { "" } else { "--no-data" };
-
     let export_branch = export_branch.unwrap_or("master".into());
-    let mut child = exechelper::spawn_with_env_ex(
-        &["git", "fast-export", "--show-original-ids",
+    let mut fast_export_command = vec!["git", "fast-export", "--show-original-ids",
         "--signed-tags=strip", "--tag-of-filtered-object=drop",
         "--fake-missing-tagger","--reference-excluded-parents",
-        "--reencode=yes", with_or_without_data,
-        "--use-done-feature", &export_branch,
-        "--progress", "1"], &[], &[],
+        "--reencode=yes", "--use-done-feature", &export_branch,
+        "--progress", "1"
+    ];
+    if !with_blobs {
+        fast_export_command.push("--no-data");
+    }
+
+    let mut child = exechelper::spawn_with_env_ex(
+        &fast_export_command, &[], &[],
         Some(Stdio::null()), Some(Stdio::null()), Some(Stdio::piped()),
     )?;
 
@@ -170,6 +154,56 @@ pub fn parse_git_filter_export(
     Ok(unparsed_obj_vec)
 }
 
+pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
+    export_branch: Option<String>,
+    with_blobs: bool,
+    n_parsing_threads: usize,
+) {
+    let mut spawned_threads = vec![];
+    let (tx, rx) = mpsc::channel();
+    for _ in 0..n_parsing_threads {
+        let (parse_tx, parse_rx) = mpsc::channel();
+        let parse_consumer_tx_clone = tx.clone();
+        let parse_thread = thread::spawn(move || {
+            for received in parse_rx {
+                parse_consumer_tx_clone.send(export_parser::parse_into_structured_object(received)).unwrap();
+            }
+        });
+        spawned_threads.push((parse_tx, parse_thread));
+    }
+
+    // this transmitter is not doing anything, only the cloned
+    // versions of it are in use, so we HAVE to drop it here
+    // otherwise our program will hang.
+    drop(tx);
+
+    // on the thread that is running the git fast-export,
+    // it will alternate passing these UNPARSED messages to one of our
+    // parsing threads. the parsing threads (created above)
+    // will then pass the PARSED message back to our main thread
+    let thread_handle = thread::spawn(move || {
+        let mut counter = 0;
+        let _ = parse_git_filter_export_with_callback(export_branch, with_blobs, |x| {
+            let thread_index = counter % n_parsing_threads as usize;
+            let (parse_tx, _) = &spawned_threads[thread_index];
+            parse_tx.send(x).unwrap();
+            counter += 1;
+        });
+    });
+
+    eprintln!("Using threads {}", n_parsing_threads);
+    let mut first_received = false;
+    for _received in rx {
+        if !first_received {
+            first_received = true;
+            eprintln!("Received first PARSED thing at {:?}", std::time::Instant::now());
+        }
+    }
+
+    let _ = thread_handle.join().unwrap();
+    eprintln!("Last received at {:?}", std::time::Instant::now());
+}
+
 
 /// uses mpsc channel to parse a bit faster. the rationale
 /// is that the thread that spawns the git fast-export command
@@ -182,6 +216,18 @@ pub fn parse_git_filter_export_via_channel(
     export_branch: Option<String>,
     with_blobs: bool,
 ) {
+    let cpu_count = num_cpus::get() as isize;
+    // minus 2 because we are already using 2 threads.
+    let spawn_parser_threads = cpu_count - 2;
+
+    if spawn_parser_threads > 1 {
+        return parse_git_filter_export_via_channel_and_n_parsing_threads(
+            export_branch, with_blobs, spawn_parser_threads as usize);
+    }
+
+    // otherwise here we will use only 2 threads: on the main
+    // thread we will run the parsing and filtering, and on the spawned
+    // thread we will be collecting and splitting the git fast-export output
     let (tx, rx) = mpsc::channel();
     let thread_handle = thread::spawn(move || {
         parse_git_filter_export_with_callback(export_branch, with_blobs, |x| {
@@ -189,13 +235,15 @@ pub fn parse_git_filter_export_via_channel(
         })
     });
 
-    let mut counter = 0;
+    let mut parsed_objects = vec![];
+
+    let mut _counter = 0;
     for received in rx {
-        print!("{}", received.before_data_str);
-        print!("{}", received.after_data_str);
-        counter += 1;
+        parsed_objects.push(export_parser::parse_into_structured_object(received));
+        _counter += 1;
     }
-    println!("Counted {} objects from git fast-export", counter);
+
+    eprintln!("Counted {} objects from git fast-export", parsed_objects.len());
     let _ = thread_handle.join().unwrap();
 }
 
@@ -205,4 +253,11 @@ mod tests {
     // use std::io::prelude::*;
 
     // TODO: whats a unit test? ;)
+
+    #[test]
+    fn test1() {
+        let now = std::time::Instant::now();
+        super::parse_git_filter_export_via_channel(None, false);
+        eprintln!("total time {:?}", now.elapsed());
+    }
 }

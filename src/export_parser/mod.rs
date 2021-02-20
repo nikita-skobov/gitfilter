@@ -239,8 +239,8 @@ pub fn parse_into_structured_object(unparsed: UnparsedFastExportObject) -> Struc
     let before_data_obj = parse_before_data(&unparsed.before_data_str);
     // println!("{:#?}", before_data_obj);
     // println!("==========================");
-    if let ObjectType::Commit(commit_obj) = before_data_obj.object {
-        println!("{}", commit_obj.mark.unwrap());
+    if let ObjectType::Commit(_commit_obj) = before_data_obj.object {
+        // println!("{}", commit_obj.mark.unwrap());
     }
 
     // TODO: clone the needed properties from before_data_obj
