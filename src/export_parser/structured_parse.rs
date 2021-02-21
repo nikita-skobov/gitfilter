@@ -40,8 +40,52 @@ pub fn get_regex_notemodifyline(text: &str) -> Option<Captures> {
     regex_capture!(text, r"^N (.*?) (.*?)$")
 }
 
+pub fn owned_string_option(orig: Option<&str>) -> Option<String> {
+    match orig {
+        Some(s) => Some(s.into()),
+        None => None
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct StructuredCommit {
+    pub commit_ref: String,
+    pub mark: Option<String>,
+
+    // we require it because we pass --show-original-ids to fast-export
+    pub original_oid: String,
+    pub committer: CommitPersonOwned,
+    pub author: AuthorPerson,
+    // this is both the header and summary of the commit message
+    pub commit_message: String,
+
+    pub from: Option<String>,
+    pub merges: Vec<String>,
+    pub fileops: Vec<FileOpsOwned>,
+}
+
+#[derive(Debug)]
+pub enum StructuredObjectType {
+    Blob,
+    Commit(StructuredCommit),
+}
+
+impl Default for StructuredObjectType {
+    fn default() -> Self {
+        StructuredObjectType::Commit(StructuredCommit::default())
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct StructuredExportObject {
-    pub numthings: u32,
+    pub has_reset: Option<String>,
+    pub has_reset_from: Option<String>,
+
+    // there are other features but we dont implement them,
+    // if we see the keyword 'feature', we assume its "feature done"
+    pub has_feature_done: bool,
+
+    pub object_type: StructuredObjectType,
 }
 
 pub enum BeforeDataParserMode {
@@ -96,6 +140,43 @@ pub struct CommitPerson<'a> {
 }
 
 #[derive(Default, Debug)]
+pub struct CommitPersonOwned {
+    pub name: Option<String>,
+    pub email: String,
+    pub timestr: String,
+}
+
+impl<'a> Into<CommitPersonOwned> for &CommitPerson<'a> {
+    fn into(self) -> CommitPersonOwned {
+        CommitPersonOwned {
+            name: owned_string_option(self.name),
+            email: self.email.into(),
+            timestr: self.timestr.into(),
+        }
+    }
+}
+
+impl<'a> PartialEq for CommitPerson<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name &&
+        self.email == other.email &&
+        self.timestr == other.timestr
+    }
+}
+
+#[derive(Debug)]
+pub enum AuthorPerson {
+    NoAuthor,
+    SameAsCommitPerson,
+    Author(CommitPersonOwned),
+}
+impl Default for AuthorPerson {
+    fn default() -> Self {
+        AuthorPerson::NoAuthor
+    }
+}
+
+#[derive(Default, Debug)]
 pub struct CommitObject<'a> {
     refname: &'a str,
     mark: Option<&'a str>,
@@ -103,7 +184,7 @@ pub struct CommitObject<'a> {
     // we should always be given an oid
     oid: &'a str,
 
-    author: CommitPerson<'a>,
+    author: Option<CommitPerson<'a>>,
     committer: CommitPerson<'a>,
 }
 
@@ -129,6 +210,33 @@ pub enum FileOps<'a> {
     FileRename(&'a str, &'a str),
     FileDeleteAll,
     NoteModify(&'a str, &'a str),
+}
+#[derive(Debug)]
+pub enum FileOpsOwned {
+    FileModify(String, String, String),
+    FileDelete(String),
+    FileCopy(String, String),
+    FileRename(String, String),
+    FileDeleteAll,
+    NoteModify(String, String),
+}
+impl Default for FileOpsOwned {
+    fn default() -> Self {
+        FileOpsOwned::FileDeleteAll
+    }
+}
+
+impl<'a> Into<FileOpsOwned> for &FileOps<'a> {
+    fn into(self) -> FileOpsOwned {
+        match self {
+            FileOps::FileModify(a, b, c) => FileOpsOwned::FileModify((*a).into(), (*b).into(), (*c).into()),
+            FileOps::FileDelete(a) => FileOpsOwned::FileDelete((*a).into()),
+            FileOps::FileCopy(a, b) => FileOpsOwned::FileCopy((*a).into(), (*b).into()),
+            FileOps::FileRename(a, b) => FileOpsOwned::FileRename((*a).into(), (*b).into()),
+            FileOps::NoteModify(a, b) => FileOpsOwned::NoteModify((*a).into(), (*b).into()),
+            FileOps::FileDeleteAll => FileOpsOwned::FileDeleteAll,
+        }
+    }
 }
 
 #[derive(Default, Debug)]
@@ -243,7 +351,7 @@ pub fn parse_author_or_committer_line<'a>(
     };
     if let ObjectType::Commit(commit_obj) = &mut object.object {
         if is_author {
-            commit_obj.author = person;
+            commit_obj.author = Some(person);
         } else {
             commit_obj.committer = person;
         }
@@ -443,41 +551,78 @@ pub fn parse_after_data_line<'a>(
     Some(())
 }
 
-pub fn parse_before_data<'a>(before_data_str: &'a String) -> BeforeDataObject<'a> {
+pub fn parse_before_data<'a>(before_data_str: &'a String) -> Option<BeforeDataObject<'a>> {
     let mut parser_mode = BeforeDataParserMode::Initial;
     let mut output_obj = BeforeDataObject::default();
     for line in before_data_str.lines() {
-        parse_before_data_line(line, &mut parser_mode, &mut output_obj);
+        if line.is_empty() { continue; }
+        parse_before_data_line(line, &mut parser_mode, &mut output_obj)?;
     }
 
-    output_obj
+    Some(output_obj)
 }
 
-pub fn parse_after_data<'a>(after_data_str: &'a String) -> AfterDataObject<'a> {
+pub fn parse_after_data<'a>(after_data_str: &'a String) -> Option<AfterDataObject<'a>> {
     let mut parser_mode = AfterDataParserMode::Initial;
     let mut output_obj = AfterDataObject::default();
 
     for line in after_data_str.lines() {
-        parse_after_data_line(line, &mut parser_mode, &mut output_obj);
+        if line.is_empty() { continue; }
+        parse_after_data_line(line, &mut parser_mode, &mut output_obj)?;
     }
 
-    output_obj
+    Some(output_obj)
 }
 
 pub fn parse_into_structured_object(unparsed: UnparsedFastExportObject) -> StructuredExportObject {
-    let before_data_obj = parse_before_data(&unparsed.before_data_str);
-    let after_data_obj = parse_after_data(&unparsed.after_data_str);
-    println!("{}", unparsed.before_data_str);
-    println!("{}", unparsed.after_data_str);
-    println!("-------------------");
-    println!("{:#?}", before_data_obj);
-    println!("{:#?}", after_data_obj);
-    println!("==========================");
+    // print!("{}", unparsed.before_data_str);
+    // print!("{}", unparsed.after_data_str);
+    let before_data_obj = parse_before_data(&unparsed.before_data_str).expect("Failed to parse before data section");
+    let after_data_obj = parse_after_data(&unparsed.after_data_str).expect("Failed to parse after data section");
+    
+    // println!("---------------------");
+    // println!("{:?}", before_data_obj);
+    // println!("{:?}", after_data_obj);
+    // println!("============================");
 
-    // TODO: clone the needed properties from before_data_obj
-    // into the structured export object
-    let numthings = 0;
-    StructuredExportObject { numthings }
+    let mut output_object = StructuredExportObject::default();
+    output_object.has_feature_done = before_data_obj.has_feature_done;
+    output_object.has_reset = owned_string_option(before_data_obj.has_reset);
+    output_object.has_reset_from = owned_string_option(before_data_obj.has_reset_from);
+
+    let object_type = if let ObjectType::Commit(commit_obj) = &before_data_obj.object {
+        let author_type = match &commit_obj.author {
+            None => AuthorPerson::NoAuthor,
+            Some(author) => {
+                if commit_obj.committer == *author {
+                    AuthorPerson::SameAsCommitPerson
+                } else {
+                    AuthorPerson::Author(author.into())
+                }
+            }
+        };
+
+        let structured_commit = StructuredCommit {
+            commit_ref: commit_obj.refname.into(),
+            mark: owned_string_option(commit_obj.mark),
+            original_oid: commit_obj.oid.into(),
+            committer: (&commit_obj.committer).into(),
+            author: author_type,
+            commit_message: String::from_utf8_lossy(&unparsed.data).into(),
+            from: owned_string_option(after_data_obj.from),
+            merges: after_data_obj.merges.iter().map(|x| String::from(*x)).collect(),
+            fileops: after_data_obj.fileops.iter().map(|x| x.into()).collect(),
+        };
+        StructuredObjectType::Commit(structured_commit)
+    } else {
+        StructuredObjectType::Blob
+    };
+
+    output_object.object_type = object_type;
+
+    // println!("{:#?}", output_object);
+
+    output_object
 }
 
 
@@ -497,7 +642,7 @@ committer Bryan Bryan <bb@email.com> 1548162866 -0800
 data 12"#;
 
         let test_string = String::from(test_str);
-        let before_obj = parse_before_data(&test_string);
+        let before_obj = parse_before_data(&test_string).unwrap();
         // println!("{:#?}", before_obj);
 
         assert_eq!(before_obj.has_feature_done, true);
@@ -508,7 +653,7 @@ data 12"#;
         } else { panic!("expected commit object") };
         assert_eq!(obj.committer.name, Some("Bryan Bryan"));
         assert_eq!(obj.committer.email, "bb@email.com");
-        assert_eq!(obj.author.timestr, "1548162866 -0800");
+        assert_eq!(obj.author.unwrap().timestr, "1548162866 -0800");
     }
 
     #[test]
