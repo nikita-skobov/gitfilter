@@ -55,7 +55,7 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
     export_branch: Option<String>,
     with_blobs: bool,
     n_parsing_threads: usize,
-    cb: impl FnMut(usize),
+    cb: impl FnMut(StructuredExportObject),
 ) {
     let mut cb = cb;
     let mut spawned_threads = vec![];
@@ -103,12 +103,12 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
     // and put them into the out_vec in the correct order
     let mut first_received = false;
     let mut expected = 0;
-    let mut out_vec = vec![];
+    // let mut out_vec = vec![];
     let mut wait_heap = BinaryHeap::new();
     for received in rx {
         if received.0 == expected {
-            out_vec.push(received.1);
-            cb(received.0);
+            // out_vec.push(received.1);
+            cb(received.1);
             expected += 1;
         } else {
             let wait_obj = WaitObj {
@@ -121,8 +121,8 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
         while let Some(wait_obj) = wait_heap.pop() {
             let wait_obj = wait_obj.0;
             if wait_obj.index == expected {
-                out_vec.push(wait_obj.obj);
-                cb(wait_obj.index);
+                // out_vec.push(wait_obj.obj);
+                cb(wait_obj.obj);
                 expected += 1;
             } else {
                 wait_heap.push(Reverse(wait_obj));
@@ -151,14 +151,16 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
 pub fn parse_git_filter_export_via_channel(
     export_branch: Option<String>,
     with_blobs: bool,
+    cb: impl FnMut(StructuredExportObject),
 ) {
+    let mut cb = cb;
     let cpu_count = num_cpus::get() as isize;
     // minus 2 because we are already using 2 threads.
     let spawn_parser_threads = cpu_count - 2;
 
     if spawn_parser_threads > 1 {
         return parse_git_filter_export_via_channel_and_n_parsing_threads(
-            export_branch, with_blobs, spawn_parser_threads as usize, |_| {});
+            export_branch, with_blobs, spawn_parser_threads as usize, cb);
     }
 
     // otherwise here we will use only 2 threads: on the main
@@ -171,31 +173,36 @@ pub fn parse_git_filter_export_via_channel(
         })
     });
 
-    let mut parsed_objects = vec![];
-
-    let mut _counter = 0;
     for received in rx {
-        parsed_objects.push(export_parser::parse_into_structured_object(received));
-        _counter += 1;
+        let parsed = parse_into_structured_object(received);
+        // here we know the order we receive is the exact same as the order
+        // they were parsed, so we can callback right away.
+        cb(parsed);
     }
 
-    eprintln!("Counted {} objects from git fast-export", parsed_objects.len());
+    // eprintln!("Counted {} objects from git fast-export", parsed_objects.len());
     let _ = thread_handle.join().unwrap();
 }
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
     // use std::io::prelude::*;
 
     // TODO: whats a unit test? ;)
 
     #[test]
     fn using_multiple_parsing_threads_keeps_order_the_same() {
-        let mut expected_count = 0;
-        super::parse_git_filter_export_via_channel_and_n_parsing_threads(
-            None, false, 4, |counter| {
-                assert_eq!(counter, expected_count);
+        let mut expected_count = 1;
+        parse_git_filter_export_via_channel_and_n_parsing_threads(
+            None, false, 4, |obj| {
+                if let StructuredObjectType::Commit(commit_obj) = obj.object_type {
+                    let mark_str = commit_obj.mark.unwrap();
+                    let expected_mark_str = format!(":{}", expected_count);
+                    assert_eq!(expected_mark_str, mark_str);
+                } else {
+                    panic!("Expected commit object");
+                }
                 expected_count += 1;
             });
     }
@@ -203,7 +210,7 @@ mod tests {
     #[test]
     fn test1() {
         let now = std::time::Instant::now();
-        super::parse_git_filter_export_via_channel(None, false);
+        parse_git_filter_export_via_channel(None, false, |_| {});
         eprintln!("total time {:?}", now.elapsed());
     }
 }
