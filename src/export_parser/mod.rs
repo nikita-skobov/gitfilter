@@ -51,6 +51,13 @@ pub enum BeforeDataParserMode {
 }
 use BeforeDataParserMode::*;
 
+pub enum AfterDataParserMode {
+    Initial,
+    AfterFrom,
+    AfterMerge,
+}
+use AfterDataParserMode::*;
+
 pub enum NextWordType {
     Oid,
     Mark,
@@ -58,6 +65,8 @@ pub enum NextWordType {
     ResetFrom,
     ResetLine,
     Data,
+    From,
+    Merge,
 }
 use NextWordType::*;
 
@@ -110,6 +119,25 @@ pub struct BeforeDataObject<'a> {
     object: ObjectType<'a>,
 
     data: &'a str,
+}
+
+#[derive(Debug)]
+pub enum FileOps<'a> {
+    FileModify(&'a str, &'a str, &'a str),
+    FileDelete(&'a str),
+    FileCopy(&'a str, &'a str),
+    FileRename(&'a str, &'a str),
+    FileDeleteAll,
+    NoteModify(&'a str, &'a str),
+}
+
+#[derive(Default, Debug)]
+pub struct AfterDataObject<'a> {
+    from: Option<&'a str>,
+
+    merges: Vec<&'a str>,
+
+    fileops: Vec<FileOps<'a>>,
 }
 
 pub fn set_object_property<'a>(
@@ -165,7 +193,35 @@ pub fn parse_next_word<'a>(
         },
         Data => {
             object.data = next_word;
+        },
+        // not relevant to the before data object
+        _ => {},
+    }
+    Some(())
+}
+
+
+// this is used for parsing the next word but
+// only for the after data object
+pub fn parse_next_word2<'a>(
+    word_split: &mut SplitWhitespace<'a>,
+    object: &mut AfterDataObject<'a>,
+    next_word_type: NextWordType,
+    parse_mode: &mut AfterDataParserMode,
+) -> Option<()> {
+    let next_word = word_split.next()?;
+    match next_word_type {
+        From => {
+            object.from = Some(next_word);
+            *parse_mode = AfterFrom;
+        },
+        Merge => {
+            object.merges.push(next_word);
+            *parse_mode = AfterFrom;
         }
+        // the rest of the next word types are not relevant
+        // to the after data object
+        _ => {},
     }
     Some(())
 }
@@ -201,17 +257,12 @@ pub fn parse_filemodify_line<'a>(
     object: &mut AfterDataObject<'a>,
     parse_mode: &mut AfterDataParserMode,
 ) -> Option<()> {
-    println!("PARSING FILE MODIFY LINE FOR '{}'", line);
     let captures = get_regex_filemodifyline(line).unwrap();
-    println!("got captures");
     let mode = captures.get(1)?.as_str();
-    println!("MODE: {}", mode);
     let dataref = captures.get(2)?.as_str();
-    println!("DATAREF: {}", dataref);
     let path = captures.get(3)?.as_str();
 
     let fileop = FileOps::FileModify(mode, dataref, path);
-    println!("FILE OP: {:?}", fileop);
 
     object.fileops.push(fileop);
     *parse_mode = AfterMerge;
@@ -334,6 +385,64 @@ pub fn parse_before_data_line<'a>(
     Some(())
 }
 
+pub fn parse_after_data_line<'a>(
+    line: &'a str,
+    parse_mode: &mut AfterDataParserMode,
+    object: &mut AfterDataObject<'a>,
+) -> Option<()> {
+    let mut word_split = line.split_whitespace();
+    let first_word = word_split.next()?;
+
+    match parse_mode {
+        AfterDataParserMode::Initial => match first_word {
+            "from" => parse_next_word2(&mut word_split, object, From, parse_mode)?,
+            "merge" => parse_next_word2(&mut word_split, object, Merge, parse_mode)?,
+            "M" => parse_filemodify_line(line, object, parse_mode)?,
+            "D" => parse_filedelete_line(line, object, parse_mode)?,
+            "C" => parse_filecopy_line(line, object, parse_mode)?,
+            "R" => parse_filerename_line(line, object, parse_mode)?,
+            "N" => parse_notemodify_line(line, object, parse_mode)?,
+            "deleteall" => {
+                object.fileops.push(FileOps::FileDeleteAll);
+                *parse_mode = AfterMerge;
+            }
+            _ => panic!("Unknown after data parsing?\n{}", line),
+        },
+        // if we have already seen a 'from' keyword
+        // then that cannot appear again, so we dont
+        // bother checking for it again
+        AfterFrom => match first_word {
+            "merge" => parse_next_word2(&mut word_split, object, Merge, parse_mode)?,
+            "M" => parse_filemodify_line(line, object, parse_mode)?,
+            "D" => parse_filedelete_line(line, object, parse_mode)?,
+            "C" => parse_filecopy_line(line, object, parse_mode)?,
+            "R" => parse_filerename_line(line, object, parse_mode)?,
+            "N" => parse_notemodify_line(line, object, parse_mode)?,
+            "deleteall" => {
+                object.fileops.push(FileOps::FileDeleteAll);
+                *parse_mode = AfterMerge;
+            }
+            _ => panic!("Unknown after data parsing?\n{}", line),
+        },
+
+        // if we have gotten past merge, then we only need to look at potential fileops
+        AfterMerge => match  first_word {
+            "M" => parse_filemodify_line(line, object, parse_mode)?,
+            "D" => parse_filedelete_line(line, object, parse_mode)?,
+            "C" => parse_filecopy_line(line, object, parse_mode)?,
+            "R" => parse_filerename_line(line, object, parse_mode)?,
+            "N" => parse_notemodify_line(line, object, parse_mode)?,
+            "deleteall" => {
+                object.fileops.push(FileOps::FileDeleteAll);
+                *parse_mode = AfterMerge;
+            }
+            _ => panic!("Unknown after data parsing?\n{}", line),
+        },
+    }
+
+    Some(())
+}
+
 pub fn parse_before_data<'a>(before_data_str: &'a String) -> BeforeDataObject<'a> {
     let mut parser_mode = BeforeDataParserMode::Initial;
     let mut output_obj = BeforeDataObject::default();
@@ -344,13 +453,26 @@ pub fn parse_before_data<'a>(before_data_str: &'a String) -> BeforeDataObject<'a
     output_obj
 }
 
+pub fn parse_after_data<'a>(after_data_str: &'a String) -> AfterDataObject<'a> {
+    let mut parser_mode = AfterDataParserMode::Initial;
+    let mut output_obj = AfterDataObject::default();
+
+    for line in after_data_str.lines() {
+        parse_after_data_line(line, &mut parser_mode, &mut output_obj);
+    }
+
+    output_obj
+}
+
 pub fn parse_into_structured_object(unparsed: UnparsedFastExportObject) -> StructuredExportObject {
     let before_data_obj = parse_before_data(&unparsed.before_data_str);
-    // println!("{:#?}", before_data_obj);
-    // println!("==========================");
-    if let ObjectType::Commit(_commit_obj) = before_data_obj.object {
-        // println!("{}", commit_obj.mark.unwrap());
-    }
+    let after_data_obj = parse_after_data(&unparsed.after_data_str);
+    println!("{}", unparsed.before_data_str);
+    println!("{}", unparsed.after_data_str);
+    println!("-------------------");
+    println!("{:#?}", before_data_obj);
+    println!("{:#?}", after_data_obj);
+    println!("==========================");
 
     // TODO: clone the needed properties from before_data_obj
     // into the structured export object
