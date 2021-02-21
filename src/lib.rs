@@ -195,7 +195,6 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
         let parse_consumer_tx_clone = tx.clone();
         let parse_thread = thread::spawn(move || {
             for (counter, received) in parse_rx {
-                eprintln!("RECEIVED {} and sending it back out", counter);
                 let parsed = export_parser::parse_into_structured_object(received);
                 parse_consumer_tx_clone.send((counter, parsed)).unwrap();
             }
@@ -217,7 +216,6 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
         let _ = parse_git_filter_export_with_callback(export_branch, with_blobs, |x| {
             let thread_index = counter % n_parsing_threads as usize;
             let (parse_tx, _) = &spawned_threads[thread_index];
-            eprintln!("SENDING {}", counter);
             parse_tx.send((counter, x)).unwrap();
             counter += 1;
         });
