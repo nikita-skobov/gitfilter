@@ -64,9 +64,16 @@ pub struct StructuredCommit {
     pub fileops: Vec<FileOpsOwned>,
 }
 
+#[derive(Debug, Default)]
+pub struct StructuredBlob {
+    pub mark: Option<String>,
+    pub original_oid: String,
+    pub data: Vec<u8>,
+}
+
 #[derive(Debug)]
 pub enum StructuredObjectType {
-    Blob,
+    Blob(StructuredBlob),
     Commit(StructuredCommit),
 }
 
@@ -92,6 +99,7 @@ pub enum BeforeDataParserMode {
     Initial,
     Reset,
     Commit,
+    Blob,
 }
 use BeforeDataParserMode::*;
 
@@ -123,7 +131,7 @@ use NextWordType::*;
 #[derive(Debug)]
 pub enum ObjectType<'a> {
     Commit(CommitObject<'a>),
-    Blob,
+    Blob(BlobObject<'a>),
 }
 
 impl<'a> Default for ObjectType<'a> {
@@ -174,6 +182,12 @@ impl Default for AuthorPerson {
     fn default() -> Self {
         AuthorPerson::NoAuthor
     }
+}
+
+#[derive(Debug, Default)]
+pub struct BlobObject<'a> {
+    mark: Option<&'a str>,
+    oid: &'a str,
 }
 
 #[derive(Default, Debug)]
@@ -259,8 +273,12 @@ pub fn set_object_property<'a>(
         } else if let Mark = next_word_type {
             commit_obj.mark = Some(value);
         }
-    } else if let ObjectType::Blob = &mut object.object {
-        todo!("aaaa");
+    } else if let ObjectType::Blob(blob_obj) = &mut object.object {
+        if let Oid = next_word_type {
+            blob_obj.oid = value;
+        } else if let Mark = next_word_type {
+            blob_obj.mark = Some(value);
+        }
     }
 }
 
@@ -460,6 +478,10 @@ pub fn parse_before_data_line<'a>(
             "feature" => object.has_feature_done = true,
             "reset" => parse_next_word(&mut word_split, object, ResetLine, parse_mode)?,
             "commit" => parse_next_word(&mut word_split, object, CommitRef, parse_mode)?,
+            "blob" => {
+                object.object = ObjectType::Blob(BlobObject::default());
+                *parse_mode = Blob;
+            }
             _ => panic!("Unknown initial parsing?\n{}", line),
         },
 
@@ -487,7 +509,12 @@ pub fn parse_before_data_line<'a>(
             _ => panic!("Unknown commit parsing?\n{}", line),
         },
 
-        // TODO: handle blobs
+        Blob => match first_word {
+            "mark" => parse_next_word(&mut word_split, object, Mark, parse_mode)?,
+            "original-oid" => parse_next_word(&mut word_split, object, Oid, parse_mode)?,
+            "data" => parse_next_word(&mut word_split, object, Data, parse_mode)?,
+            _ => panic!("Unknown blob parsing?\n{}", line),
+        }
     }
 
     Some(())
@@ -590,32 +617,40 @@ pub fn parse_into_structured_object(unparsed: UnparsedFastExportObject) -> Struc
     output_object.has_reset = owned_string_option(before_data_obj.has_reset);
     output_object.has_reset_from = owned_string_option(before_data_obj.has_reset_from);
 
-    let object_type = if let ObjectType::Commit(commit_obj) = &before_data_obj.object {
-        let author_type = match &commit_obj.author {
-            None => AuthorPerson::NoAuthor,
-            Some(author) => {
-                if commit_obj.committer == *author {
-                    AuthorPerson::SameAsCommitPerson
-                } else {
-                    AuthorPerson::Author(author.into())
+    let object_type = match &before_data_obj.object {
+        ObjectType::Commit(commit_obj) => {
+            let author_type = match &commit_obj.author {
+                None => AuthorPerson::NoAuthor,
+                Some(author) => {
+                    if commit_obj.committer == *author {
+                        AuthorPerson::SameAsCommitPerson
+                    } else {
+                        AuthorPerson::Author(author.into())
+                    }
                 }
-            }
-        };
-
-        let structured_commit = StructuredCommit {
-            commit_ref: commit_obj.refname.into(),
-            mark: owned_string_option(commit_obj.mark),
-            original_oid: commit_obj.oid.into(),
-            committer: (&commit_obj.committer).into(),
-            author: author_type,
-            commit_message: String::from_utf8_lossy(&unparsed.data).into(),
-            from: owned_string_option(after_data_obj.from),
-            merges: after_data_obj.merges.iter().map(|x| String::from(*x)).collect(),
-            fileops: after_data_obj.fileops.iter().map(|x| x.into()).collect(),
-        };
-        StructuredObjectType::Commit(structured_commit)
-    } else {
-        StructuredObjectType::Blob
+            };
+    
+            let structured_commit = StructuredCommit {
+                commit_ref: commit_obj.refname.into(),
+                mark: owned_string_option(commit_obj.mark),
+                original_oid: commit_obj.oid.into(),
+                committer: (&commit_obj.committer).into(),
+                author: author_type,
+                commit_message: String::from_utf8_lossy(&unparsed.data).into(),
+                from: owned_string_option(after_data_obj.from),
+                merges: after_data_obj.merges.iter().map(|x| String::from(*x)).collect(),
+                fileops: after_data_obj.fileops.iter().map(|x| x.into()).collect(),
+            };
+            StructuredObjectType::Commit(structured_commit)
+        }
+        ObjectType::Blob(blob_obj) => {
+            let structured_blob = StructuredBlob {
+                mark: owned_string_option(blob_obj.mark), 
+                original_oid: blob_obj.oid.into(),
+                data: unparsed.data,
+            };
+            StructuredObjectType::Blob(structured_blob)
+        }
     };
 
     output_object.object_type = object_type;

@@ -215,4 +215,11 @@ mod tests {
         parse_git_filter_export_via_channel(None, false, |_| {});
         eprintln!("total time {:?}", now.elapsed());
     }
+
+    #[test]
+    fn works_with_blobs() {
+        let now = std::time::Instant::now();
+        parse_git_filter_export_via_channel(None, true, |_| {});
+        eprintln!("total time {:?}", now.elapsed());
+    }
 }
