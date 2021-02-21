@@ -38,6 +38,7 @@ pub enum NextWordType {
     CommitRef,
     ResetFrom,
     ResetLine,
+    Data,
 }
 use NextWordType::*;
 
@@ -88,6 +89,8 @@ pub struct BeforeDataObject<'a> {
     has_feature_done: bool,
 
     object: ObjectType<'a>,
+
+    data: &'a str,
 }
 
 pub fn set_object_property<'a>(
@@ -141,6 +144,9 @@ pub fn parse_next_word<'a>(
             object.has_reset = Some(next_word);
             *parse_mode = BeforeDataParserMode::Reset;
         },
+        Data => {
+            object.data = next_word;
+        }
     }
     Some(())
 }
@@ -211,11 +217,7 @@ pub fn parse_before_data_line<'a>(
             "committer" => parse_author_or_committer_line(line, object, false)?,
             // I dont think we need to handle this because we do --reencode=yes
             "encoding" => (),
-            // technically this marks the end of what we consider to be commit parsing
-            // so we could reset the parsing mode here, but the way we structured the
-            // before and after strings, the data line will always be the last thing,
-            // so we dont need to do anything here
-            "data" => (),
+            "data" => parse_next_word(&mut word_split, object, Data, parse_mode)?,
             _ => panic!("Unknown commit parsing?\n{}", line),
         },
 
@@ -271,6 +273,7 @@ data 12"#;
 
         assert_eq!(before_obj.has_feature_done, true);
         assert_eq!(before_obj.has_reset, Some("refs/heads/master"));
+        assert_eq!(before_obj.data, "12");
         let obj = if let ObjectType::Commit(c) = before_obj.object {
             c
         } else { panic!("expected commit object") };
