@@ -210,6 +210,24 @@ mod tests {
     }
 
     #[test]
+    fn using_blobs_and_multiple_parsing_threads_keeps_order_the_same() {
+        let mut expected_count = 1;
+        parse_git_filter_export_via_channel_and_n_parsing_threads(
+            None, true, 4, |obj| {
+                if let StructuredObjectType::Commit(commit_obj) = obj.object_type {
+                    let mark_str = commit_obj.mark.unwrap();
+                    let expected_mark_str = format!(":{}", expected_count);
+                    assert_eq!(expected_mark_str, mark_str);
+                } else if let StructuredObjectType::Blob(blob_obj) = obj.object_type {
+                    let mark_str = blob_obj.mark.unwrap();
+                    let expected_mark_str = format!(":{}", expected_count);
+                    assert_eq!(expected_mark_str, mark_str);
+                }
+                expected_count += 1;
+            });
+    }
+
+    #[test]
     fn test1() {
         let now = std::time::Instant::now();
         parse_git_filter_export_via_channel(None, false, |_| {});
