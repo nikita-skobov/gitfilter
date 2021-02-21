@@ -4,21 +4,40 @@ use regex::Captures;
 use once_cell::sync::OnceCell;
 use std::str::SplitWhitespace;
 
-pub trait AsStaticStr { fn as_str() -> &'static str; }
-
-pub struct ReAuthorLine {}
-
-impl AsStaticStr for ReAuthorLine {
-    fn as_str() -> &'static str { r"^(?:author|committer) (.*?) ?<(.*?)> (.*?)$" }
+macro_rules! regex_capture {
+    ($text:tt, $reg:tt) => {
+        {
+            static RE: OnceCell<Regex> = OnceCell::new();
+            let re = RE.get_or_init(|| {
+                Regex::new($reg).unwrap()
+            });
+            re.captures($text)
+        }
+    };
 }
 
-pub fn get_regex_captures<T: AsStaticStr>(text: &str) -> Option<Captures> {
-    static RE: OnceCell<Regex> = OnceCell::new();
-    let re = RE.get_or_init(|| {
-        Regex::new(T::as_str()).unwrap()
-    });
+pub fn get_regex_authorline(text: &str) -> Option<Captures> {
+    regex_capture!(text, r"^(?:author|committer) (.*?) ?<(.*?)> (.*?)$")
+}
 
-    re.captures(text)
+pub fn get_regex_filemodifyline(text: &str) -> Option<Captures> {
+    regex_capture!(text, r"^M ([0-9]*) (.*?) (.*?)$")
+}
+
+pub fn get_regex_filedeleteline(text: &str) -> Option<Captures> {
+    regex_capture!(text, r"^D (.*?)$")
+}
+
+pub fn get_regex_filecopyline(text: &str) -> Option<Captures> {
+    regex_capture!(text, r"^C (.*?) (.*?)$")
+}
+
+pub fn get_regex_filerenameline(text: &str) -> Option<Captures> {
+    regex_capture!(text, r"^R (.*?) (.*?)$")
+}
+
+pub fn get_regex_notemodifyline(text: &str) -> Option<Captures> {
+    regex_capture!(text, r"^N (.*?) (.*?)$")
 }
 
 pub struct StructuredExportObject {
@@ -156,7 +175,7 @@ pub fn parse_author_or_committer_line<'a>(
     object: &mut BeforeDataObject<'a>,
     is_author: bool,
 ) -> Option<()> {
-    let captures = get_regex_captures::<ReAuthorLine>(line)?;
+    let captures = get_regex_authorline(line)?;
     let name = captures.get(1)?.as_str();
     let email = captures.get(2)?.as_str();
     let timestr = captures.get(3)?.as_str();
@@ -177,20 +196,108 @@ pub fn parse_author_or_committer_line<'a>(
     Some(())
 }
 
+pub fn parse_filemodify_line<'a>(
+    line: &'a str,
+    object: &mut AfterDataObject<'a>,
+    parse_mode: &mut AfterDataParserMode,
+) -> Option<()> {
+    println!("PARSING FILE MODIFY LINE FOR '{}'", line);
+    let captures = get_regex_filemodifyline(line).unwrap();
+    println!("got captures");
+    let mode = captures.get(1)?.as_str();
+    println!("MODE: {}", mode);
+    let dataref = captures.get(2)?.as_str();
+    println!("DATAREF: {}", dataref);
+    let path = captures.get(3)?.as_str();
+
+    let fileop = FileOps::FileModify(mode, dataref, path);
+    println!("FILE OP: {:?}", fileop);
+
+    object.fileops.push(fileop);
+    *parse_mode = AfterMerge;
+
+    Some(())
+}
+
+pub fn parse_filedelete_line<'a>(
+    line: &'a str,
+    object: &mut AfterDataObject<'a>,
+    parse_mode: &mut AfterDataParserMode,
+) -> Option<()> {
+    let captures = get_regex_filedeleteline(line)?;
+    let path = captures.get(1)?.as_str();
+
+    let fileop = FileOps::FileDelete(path);
+
+    object.fileops.push(fileop);
+    *parse_mode = AfterMerge;
+
+    Some(())
+}
+
+pub fn parse_filecopy_line<'a>(
+    line: &'a str,
+    object: &mut AfterDataObject<'a>,
+    parse_mode: &mut AfterDataParserMode,
+) -> Option<()> {
+    let captures = get_regex_filecopyline(line)?;
+    let src_path = captures.get(1)?.as_str();
+    let dest_path = captures.get(2)?.as_str();
+
+    let fileop = FileOps::FileCopy(src_path, dest_path);
+
+    object.fileops.push(fileop);
+    *parse_mode = AfterMerge;
+
+    Some(())
+}
+
+pub fn parse_filerename_line<'a>(
+    line: &'a str,
+    object: &mut AfterDataObject<'a>,
+    parse_mode: &mut AfterDataParserMode,
+) -> Option<()> {
+    let captures = get_regex_filerenameline(line)?;
+    let src_path = captures.get(1)?.as_str();
+    let dest_path = captures.get(2)?.as_str();
+
+    let fileop = FileOps::FileRename(src_path, dest_path);
+
+    object.fileops.push(fileop);
+    *parse_mode = AfterMerge;
+
+    Some(())
+}
+
+pub fn parse_notemodify_line<'a>(
+    line: &'a str,
+    object: &mut AfterDataObject<'a>,
+    parse_mode: &mut AfterDataParserMode,
+) -> Option<()> {
+    let captures = get_regex_notemodifyline(line)?;
+    let dataref = captures.get(1)?.as_str();
+    let commitish = captures.get(2)?.as_str();
+
+    let fileop = FileOps::NoteModify(dataref, commitish);
+
+    object.fileops.push(fileop);
+    *parse_mode = AfterMerge;
+
+    Some(())
+}
+
 pub fn parse_before_data_line<'a>(
     line: &'a str,
     parse_mode: &mut BeforeDataParserMode,
     object: &mut BeforeDataObject<'a>,
 ) -> Option<()> {
-    // we loop because its convenient to reuse resources and to
-    // switch parsing modes
     let mut word_split = line.split_whitespace();
     let first_word = word_split.next()?;
 
     match parse_mode {
         // in the initial state we are looking for one of several words
         // feature, reset, commit, or blob
-        Initial => match first_word {
+        BeforeDataParserMode::Initial => match first_word {
             "feature" => object.has_feature_done = true,
             "reset" => parse_next_word(&mut word_split, object, ResetLine, parse_mode)?,
             "commit" => parse_next_word(&mut word_split, object, CommitRef, parse_mode)?,
@@ -285,7 +392,7 @@ data 12"#;
     #[test]
     fn regex_author_capture_works() {
         let sample1 = "author Bryan Bryan <bb@email.com> 1548162866 -0800";
-        let captures = get_regex_captures::<ReAuthorLine>(sample1).unwrap();
+        let captures = get_regex_authorline(sample1).unwrap();
         assert_eq!(captures.get(1).unwrap().as_str(), "Bryan Bryan");
         assert_eq!(captures.get(2).unwrap().as_str(), "bb@email.com");
         assert_eq!(captures.get(3).unwrap().as_str(), "1548162866 -0800");
@@ -293,9 +400,16 @@ data 12"#;
         // it also works if the starting word is committer
         // and the name can be optional
         let sample2 = "committer <bb@email.com> 1548162866 -0800";
-        let captures = get_regex_captures::<ReAuthorLine>(sample2).unwrap();
+        let captures = get_regex_authorline(sample2).unwrap();
         assert_eq!(captures.get(1).unwrap().as_str(), "");
         assert_eq!(captures.get(2).unwrap().as_str(), "bb@email.com");
         assert_eq!(captures.get(3).unwrap().as_str(), "1548162866 -0800");
+    }
+
+    #[test]
+    fn regex_ilemodify_works() {
+        let sample1 = "M 100644 dd82933dd7b005c2b3137ffd8c28710c2ecc1e2a lib/rust/.gitignore";
+        let captures = get_regex_filemodifyline(sample1).unwrap();
+        assert_eq!(captures.get(1).unwrap().as_str(), "100644");
     }
 }
