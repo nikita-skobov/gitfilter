@@ -3,18 +3,45 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::thread;
 use num_cpus;
+use std::collections::BinaryHeap;
+use std::cmp::Reverse;
 // use std::time::Instant;
 // use std::time::Duration;
 
 use exechelper;
 
 pub mod export_parser;
-// use export_parser::StructuredExportObject;
+use export_parser::StructuredExportObject;
 
 pub enum ParseState {
     BeforeData,
     Data(usize),
     AfterData,
+}
+
+pub struct WaitObj {
+    pub index: usize,
+    pub obj: StructuredExportObject,
+}
+
+impl PartialEq for WaitObj {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+
+impl Eq for WaitObj {}
+
+impl Ord for WaitObj {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.index.cmp(&other.index)
+    }
+}
+
+impl PartialOrd for WaitObj {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.index.cmp(&other.index))
+    }
 }
 
 pub struct UnparsedFastExportObject {
@@ -158,15 +185,19 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
     export_branch: Option<String>,
     with_blobs: bool,
     n_parsing_threads: usize,
+    cb: impl FnMut(usize),
 ) {
+    let mut cb = cb;
     let mut spawned_threads = vec![];
     let (tx, rx) = mpsc::channel();
     for _ in 0..n_parsing_threads {
         let (parse_tx, parse_rx) = mpsc::channel();
         let parse_consumer_tx_clone = tx.clone();
         let parse_thread = thread::spawn(move || {
-            for received in parse_rx {
-                parse_consumer_tx_clone.send(export_parser::parse_into_structured_object(received)).unwrap();
+            for (counter, received) in parse_rx {
+                eprintln!("RECEIVED {} and sending it back out", counter);
+                let parsed = export_parser::parse_into_structured_object(received);
+                parse_consumer_tx_clone.send((counter, parsed)).unwrap();
             }
         });
         spawned_threads.push((parse_tx, parse_thread));
@@ -186,14 +217,51 @@ pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
         let _ = parse_git_filter_export_with_callback(export_branch, with_blobs, |x| {
             let thread_index = counter % n_parsing_threads as usize;
             let (parse_tx, _) = &spawned_threads[thread_index];
-            parse_tx.send(x).unwrap();
+            eprintln!("SENDING {}", counter);
+            parse_tx.send((counter, x)).unwrap();
             counter += 1;
         });
     });
 
     eprintln!("Using threads {}", n_parsing_threads);
+
+
+    // we want our vec of parsed objects
+    // to be in the same order as they were received. so
+    // we check the index of the object, and ensure that we are only
+    // adding to the out_vec if the entry is consecutive.
+    // otherwise we put it into a temporary reverse binary heap
+    // which we then keep checking to remove elements from the heap
+    // and put them into the out_vec in the correct order
     let mut first_received = false;
-    for _received in rx {
+    let mut expected = 0;
+    let mut out_vec = vec![];
+    let mut wait_heap = BinaryHeap::new();
+    for received in rx {
+        if received.0 == expected {
+            out_vec.push(received.1);
+            cb(received.0);
+            expected += 1;
+        } else {
+            let wait_obj = WaitObj {
+                index: received.0,
+                obj: received.1,
+            };
+            wait_heap.push(Reverse(wait_obj));
+        }
+
+        while let Some(wait_obj) = wait_heap.pop() {
+            let wait_obj = wait_obj.0;
+            if wait_obj.index == expected {
+                out_vec.push(wait_obj.obj);
+                cb(wait_obj.index);
+                expected += 1;
+            } else {
+                wait_heap.push(Reverse(wait_obj));
+                break;
+            }
+        }
+
         if !first_received {
             first_received = true;
             eprintln!("Received first PARSED thing at {:?}", std::time::Instant::now());
@@ -222,7 +290,7 @@ pub fn parse_git_filter_export_via_channel(
 
     if spawn_parser_threads > 1 {
         return parse_git_filter_export_via_channel_and_n_parsing_threads(
-            export_branch, with_blobs, spawn_parser_threads as usize);
+            export_branch, with_blobs, spawn_parser_threads as usize, |_| {});
     }
 
     // otherwise here we will use only 2 threads: on the main
@@ -253,6 +321,16 @@ mod tests {
     // use std::io::prelude::*;
 
     // TODO: whats a unit test? ;)
+
+    #[test]
+    fn using_multiple_parsing_threads_keeps_order_the_same() {
+        let mut expected_count = 0;
+        super::parse_git_filter_export_via_channel_and_n_parsing_threads(
+            None, false, 4, |counter| {
+                assert_eq!(counter, expected_count);
+                expected_count += 1;
+            });
+    }
 
     #[test]
     fn test1() {
