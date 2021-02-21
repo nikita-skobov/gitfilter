@@ -1,6 +1,6 @@
 use gumdrop::Options;
 use die::die;
-use gitfilter::parse_git_filter_export_via_channel;
+use gitfilter::export_parser::parse_git_filter_export_via_channel;
 
 #[derive(Debug, Options, Default)]
 pub struct Filter {
