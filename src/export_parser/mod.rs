@@ -43,12 +43,14 @@ impl PartialOrd for WaitObj {
 pub fn parse_git_filter_export(
     export_branch: Option<String>,
     with_blobs: bool,
-) -> Result<Vec<UnparsedFastExportObject>, Error> {
-    let mut unparsed_obj_vec = vec![];
-    parse_git_filter_export_with_callback(export_branch, with_blobs, |info| {
-        unparsed_obj_vec.push(info);
+    cb: impl FnMut(StructuredExportObject),
+) -> Result<(), Error> {
+    let mut cb = cb;
+    parse_git_filter_export_with_callback(export_branch, with_blobs, |unparsed| {
+        let parsed = parse_into_structured_object(unparsed);
+        cb(parsed);
     })?;
-    Ok(unparsed_obj_vec)
+    Ok(())
 }
 
 pub fn parse_git_filter_export_via_channel_and_n_parsing_threads(
