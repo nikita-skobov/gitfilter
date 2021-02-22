@@ -33,10 +33,10 @@ pub fn make_expected_progress_string(progress_num: u32) -> String {
 /// for future parsing. the rationale is that we need to parse the data section
 /// seperately anyway since we need to know when to resume parsing the other
 /// sections.
-pub fn parse_git_filter_export_with_callback(
+pub fn parse_git_filter_export_with_callback<O, E>(
     export_branch: Option<String>,
     with_blobs: bool,
-    cb: impl FnMut(UnparsedFastExportObject)
+    cb: impl FnMut(UnparsedFastExportObject) -> Result<O, E>,
 ) -> Result<(), Error>{
     // let now = Instant::now();
     let export_branch = export_branch.unwrap_or("master".into());
@@ -116,6 +116,8 @@ pub fn parse_git_filter_export_with_callback(
                         before_data_str, data: data_vec, after_data_str
                     };
                     cb(unparsed_obj);
+                    // TODO: handle error from callback
+                    // and close stream then return io error ourselves
 
                     before_data_str = String::new();
                     data_vec = vec![];

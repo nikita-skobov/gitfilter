@@ -40,5 +40,12 @@ pub fn get_cli_input() -> Filter {
 
 fn main() {
     let filter = get_cli_input();
-    parse_git_filter_export_via_channel(filter.branch, filter.with_data, |_| {});
+    let empty_cb = |_| {
+        if 1 == 1 {
+            Ok(())
+        } else {
+            Err(())
+        }
+    };
+    parse_git_filter_export_via_channel(filter.branch, filter.with_data, empty_cb).unwrap();
 }
