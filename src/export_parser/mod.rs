@@ -13,7 +13,6 @@ use num_cpus;
 use std::collections::BinaryHeap;
 use std::cmp::Reverse;
 use std::io::Write;
-use std::io::stdout;
 use std::io;
 // use std::time::Instant;
 // use std::time::Duration;
