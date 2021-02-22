@@ -64,6 +64,16 @@ pub struct StructuredCommit {
     pub fileops: Vec<FileOpsOwned>,
 }
 
+impl StructuredCommit {
+    pub fn get_author(&self) -> Option<&CommitPersonOwned> {
+        match self.author {
+            AuthorPerson::NoAuthor => None,
+            AuthorPerson::SameAsCommitPerson => Some(&self.committer),
+            AuthorPerson::Author(ref a) => Some(a),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct StructuredBlob {
     pub mark: Option<String>,
@@ -91,6 +101,8 @@ pub struct StructuredExportObject {
     // there are other features but we dont implement them,
     // if we see the keyword 'feature', we assume its "feature done"
     pub has_feature_done: bool,
+
+    pub data_size: String,
 
     pub object_type: StructuredObjectType,
 }
@@ -616,6 +628,7 @@ pub fn parse_into_structured_object(unparsed: UnparsedFastExportObject) -> Struc
     output_object.has_feature_done = before_data_obj.has_feature_done;
     output_object.has_reset = owned_string_option(before_data_obj.has_reset);
     output_object.has_reset_from = owned_string_option(before_data_obj.has_reset_from);
+    output_object.data_size = before_data_obj.data.into();
 
     let object_type = match &before_data_obj.object {
         ObjectType::Commit(commit_obj) => {

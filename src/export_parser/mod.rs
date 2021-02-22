@@ -12,6 +12,9 @@ use std::thread;
 use num_cpus;
 use std::collections::BinaryHeap;
 use std::cmp::Reverse;
+use std::io::Write;
+use std::io::stdout;
+use std::io;
 // use std::time::Instant;
 // use std::time::Duration;
 
@@ -187,6 +190,141 @@ pub fn parse_git_filter_export_via_channel<O, E>(
 
     // eprintln!("Counted {} objects from git fast-export", parsed_objects.len());
     let _ = thread_handle.join().unwrap();
+    Ok(())
+}
+
+
+pub fn write_person_info(write_data: &mut Vec<u8>, person: &CommitPersonOwned, is_author: bool) {
+    if is_author {
+        write_data.extend(b"author ");
+    } else {
+        write_data.extend(b"committer ");
+    }
+    if let Some(name) = &person.name {
+        write_data.extend(name.as_bytes());
+        write_data.push(b' ');
+    }
+    write_data.push(b'<');
+    write_data.extend(person.email.as_bytes());
+    write_data.extend(b"> ");
+    write_data.extend(person.timestr.as_bytes());
+    write_data.push(b'\n');
+}
+
+/// convenience function to write the structured export object
+/// out to some writable stream. This function ensures that your
+/// structured export object is formatted properly for git-fast-import
+/// to read it in.
+pub fn write_to_stream<W: Write>(stream: W, obj: StructuredExportObject) -> io::Result<()> {
+    let mut stream = stream;
+    let mut write_data: Vec<u8> = vec![];
+    if obj.has_feature_done {
+        write_data.extend(b"feature done\n");
+    }
+    if let Some(reset_ref) = &obj.has_reset {
+        write_data.extend(b"reset ");
+        write_data.extend(reset_ref.as_bytes());
+        write_data.push(b'\n');
+    }
+    if let Some(reset_from) = obj.has_reset_from {
+        write_data.extend(b"from ");
+        write_data.extend(reset_from.as_bytes());
+        write_data.push(b'\n');
+    }
+    if obj.has_reset.is_some() {
+        write_data.push(b'\n');
+    }
+
+    if let StructuredObjectType::Commit(commit_obj) = obj.object_type {
+        write_data.extend(b"commit ");
+        write_data.extend(commit_obj.commit_ref.as_bytes());
+        write_data.push(b'\n');
+        if let Some(mark) = &commit_obj.mark {
+            write_data.extend(b"mark ");
+            write_data.extend(mark.as_bytes());
+            write_data.push(b'\n');
+        }
+        write_data.extend(b"original-oid ");
+        write_data.extend(commit_obj.original_oid.as_bytes());
+        write_data.push(b'\n');
+        if let Some(author) = commit_obj.get_author() {
+            write_person_info(&mut write_data, author, true);
+        }
+        write_person_info(&mut write_data, &commit_obj.committer, false);
+        write_data.extend(b"data ");
+        write_data.extend(obj.data_size.as_bytes());
+        write_data.push(b'\n');
+        write_data.extend(commit_obj.commit_message.as_bytes());
+        write_data.push(b'\n');
+
+        if let Some(from) = commit_obj.from {
+            write_data.extend(b"from ");
+            write_data.extend(from.as_bytes());
+            write_data.push(b'\n');
+        }
+        for merge_info in commit_obj.merges {
+            write_data.extend(b"merge ");
+            write_data.extend(merge_info.as_bytes());
+            write_data.push(b'\n');
+        }
+        for fileop in commit_obj.fileops {
+            match fileop {
+                FileOpsOwned::FileModify(mode, dataref, path) => {
+                    write_data.extend(b"M ");
+                    write_data.extend(mode.as_bytes());
+                    write_data.push(b' ');
+                    write_data.extend(dataref.as_bytes());
+                    write_data.push(b' ');
+                    write_data.extend(path.as_bytes());
+                }
+                FileOpsOwned::FileDelete(path) => {
+                    write_data.extend(b"D ");
+                    write_data.extend(path.as_bytes());
+                }
+                FileOpsOwned::FileCopy(a, b) => {
+                    write_data.extend(b"C ");
+                    write_data.extend(a.as_bytes());
+                    write_data.push(b' ');
+                    write_data.extend(b.as_bytes());
+                }
+                FileOpsOwned::FileRename(a, b) => {
+                    write_data.extend(b"R ");
+                    write_data.extend(a.as_bytes());
+                    write_data.push(b' ');
+                    write_data.extend(b.as_bytes());
+                }
+                FileOpsOwned::FileDeleteAll => {
+                    write_data.extend(b"deleteall");
+                }
+                FileOpsOwned::NoteModify(dataref, commitish) => {
+                    write_data.extend(b"N ");
+                    write_data.extend(dataref.as_bytes());
+                    write_data.push(b' ');
+                    write_data.extend(commitish.as_bytes());
+                }
+            }
+            write_data.push(b'\n');
+        }
+        write_data.push(b'\n');
+    } else if let StructuredObjectType::Blob(blob_obj) = obj.object_type {
+        write_data.extend(b"blob\n");
+        if let Some(mark) = blob_obj.mark {
+            write_data.extend(b"mark ");
+            write_data.extend(mark.as_bytes());
+            write_data.push(b'\n');
+        }
+        write_data.extend(b"original-oid ");
+        write_data.extend(blob_obj.original_oid.as_bytes());
+        write_data.push(b'\n');
+        write_data.extend(b"data ");
+        write_data.extend(obj.data_size.as_bytes());
+        write_data.push(b'\n');
+        write_data.extend(blob_obj.data);
+        write_data.push(b'\n');
+    }
+
+    stream.write_all(&write_data)?;
+
     Ok(())
 }
 
