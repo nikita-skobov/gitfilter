@@ -115,7 +115,14 @@ pub fn parse_git_filter_export_with_callback<O, E>(
                     let unparsed_obj = UnparsedFastExportObject {
                         before_data_str, data: data_vec, after_data_str
                     };
-                    cb(unparsed_obj);
+                    match cb(unparsed_obj) {
+                        Ok(_) => {},
+                        Err(_) => { // TODO: add bound on E that it should be debug?
+                            let _ = child.kill();
+                            return Err(make_stdio_err("Error from callback, closing fast-export stream"));
+                        }
+                    }
+
                     // TODO: handle error from callback
                     // and close stream then return io error ourselves
 
