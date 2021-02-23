@@ -29,6 +29,8 @@ mod test {
     use std::fs::File;
     use std::io::stdout;
     use std::io::sink;
+    use std::io::Cursor;
+    use std::io::Read;
 
     #[test]
     fn filter_path_works() {
@@ -45,5 +47,28 @@ mod test {
                 }
             }
         }).unwrap();
+    }
+
+    #[test]
+    fn can_modify_filter_objects() {
+        let mut writer = Cursor::new(vec![]);
+        filter_with_cb(&mut writer, |obj| {
+            if let Some(reset) = &mut obj.has_reset {
+                *reset = "refs/heads/NEWBRANCHNAMEAAAAAAA".into();
+            }
+            match &mut obj.object_type {
+                StructuredObjectType::Blob(_) => true,
+                StructuredObjectType::Commit(commit_obj) => {
+                    commit_obj.commit_ref = commit_obj.commit_ref.replace("master", "NEWBRANCHNAMEAAAAAAA");
+                    true
+                }
+            }
+        }).unwrap();
+
+        let mut s = String::from("");
+        writer.set_position(0);
+        writer.read_to_string(&mut s).unwrap();
+        assert!(s.contains("refs/heads/NEWBRANCHNAMEAAAAAAA"));
+        assert!(!s.contains("refs/heads/master"));
     }
 }
