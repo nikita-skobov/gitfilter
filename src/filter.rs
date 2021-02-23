@@ -2,16 +2,15 @@ use super::export_parser;
 use export_parser::StructuredExportObject;
 use export_parser::StructuredObjectType;
 use std::io::Write;
-use std::io::stdout;
 use std::io;
 
 // temporary function to test out filtering
-pub fn filter_with_cb<T: Write>(stream: T, cb: impl FnMut(&StructuredExportObject) -> bool) -> io::Result<()> {
+pub fn filter_with_cb<T: Write>(stream: T, cb: impl FnMut(&mut StructuredExportObject) -> bool) -> io::Result<()> {
     let mut stream = stream;
     let mut cb = cb;
     export_parser::parse_git_filter_export_via_channel(None, false,
-        |obj| {
-            if cb(&obj) {
+        |mut obj| {
+            if cb(&mut obj) {
                 return export_parser::write_to_stream(&mut stream, obj);
             }
             Ok(())
@@ -28,10 +27,12 @@ pub fn filter_with_cb<T: Write>(stream: T, cb: impl FnMut(&StructuredExportObjec
 mod test {
     use super::*;
     use std::fs::File;
+    use std::io::stdout;
+    use std::io::sink;
 
     #[test]
     fn filter_path_works() {
-        let writer = stdout();
+        let writer = sink();
         filter_with_cb(writer, |obj| {
             match &obj.object_type {
                 StructuredObjectType::Blob(_) => true,
