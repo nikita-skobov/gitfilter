@@ -1,6 +1,5 @@
 use super::export_parser;
 use export_parser::StructuredExportObject;
-use export_parser::StructuredObjectType;
 use std::io::Write;
 use std::io;
 
@@ -26,11 +25,10 @@ pub fn filter_with_cb<T: Write>(stream: T, cb: impl FnMut(&mut StructuredExportO
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::fs::File;
-    use std::io::stdout;
     use std::io::sink;
     use std::io::Cursor;
     use std::io::Read;
+    use export_parser::StructuredObjectType;
 
     #[test]
     fn filter_path_works() {
