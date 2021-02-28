@@ -3,11 +3,57 @@ use export_parser::StructuredExportObject;
 use std::io::Write;
 use std::io;
 
+pub enum FilterRule {
+    FilterRulePathInclude(String),
+    FilterRulePathExclude(String),
+}
+
+pub type FilterRules = Vec<FilterRule>;
+
+/// Filter options are
+/// just the initial options passed to initiate
+/// the filtering operation. the actual
+/// rules that determine how something is filtered is in
+/// `FilterRules`
+#[derive(Debug, Default)]
+pub struct FilterOptions<T: Write> {
+    pub stream: T,
+    /// defaults to master
+    pub branch: Option<String>,
+    pub with_blobs: bool,
+    // TODO:
+    // pub num_threads: Option<usize>,
+}
+
+impl<T: Write> From<T> for FilterOptions<T> {
+    fn from(orig: T) -> Self {
+        FilterOptions {
+            stream: orig,
+            branch: None,
+            with_blobs: false,
+        }
+    }
+}
+
+pub fn filter_with_rules<T: Write>(
+    filter_options: FilterOptions<T>,
+    filter_rules: FilterRules,
+) -> io::Result<()> {
+    let cb = |obj: &mut StructuredExportObject| -> bool {
+        true
+    };
+    filter_with_cb(filter_options, cb)
+}
+
 // temporary function to test out filtering
-pub fn filter_with_cb<T: Write>(stream: T, cb: impl FnMut(&mut StructuredExportObject) -> bool) -> io::Result<()> {
-    let mut stream = stream;
+pub fn filter_with_cb<T: Write, F: Into<FilterOptions<T>>>(
+    options: F,
+    cb: impl FnMut(&mut StructuredExportObject) -> bool
+) -> io::Result<()> {
+    let options: FilterOptions<T> = options.into();
+    let mut stream = options.stream;
     let mut cb = cb;
-    export_parser::parse_git_filter_export_via_channel(None, false,
+    export_parser::parse_git_filter_export_via_channel(options.branch, options.with_blobs,
         |mut obj| {
             if cb(&mut obj) {
                 return export_parser::write_to_stream(&mut stream, obj);
