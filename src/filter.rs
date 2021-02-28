@@ -37,9 +37,9 @@ impl<T: Write> From<T> for FilterOptions<T> {
 
 pub fn filter_with_rules<T: Write>(
     filter_options: FilterOptions<T>,
-    filter_rules: FilterRules,
+    _filter_rules: FilterRules,
 ) -> io::Result<()> {
-    let cb = |obj: &mut StructuredExportObject| -> bool {
+    let cb = |_obj: &mut StructuredExportObject| -> bool {
         true
     };
     filter_with_cb(filter_options, cb)

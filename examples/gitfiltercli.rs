@@ -1,6 +1,6 @@
 use gumdrop::Options;
-use die::die;
-use gitfilter::export_parser::parse_git_filter_export_via_channel;
+// use die::die;
+use gitfilter::filter::*;
 
 #[derive(Debug, Options, Default)]
 pub struct Filter {
@@ -19,6 +19,9 @@ pub struct Filter {
 
     #[options(help = "Name of branch to filter from")]
     pub branch: Option<String>,
+
+    #[options(help = "path to filter", required)]
+    pub path: String,
 }
 
 
@@ -39,13 +42,24 @@ pub fn get_cli_input() -> Filter {
 }
 
 fn main() {
+    use std::io::stdout;
     let filter = get_cli_input();
-    let empty_cb = |_| {
-        if 1 == 1 {
-            Ok(())
-        } else {
-            Err(())
-        }
+    // let empty_cb = |_| {
+    //     if 1 == 1 {
+    //         Ok(())
+    //     } else {
+    //         Err(())
+    //     }
+    // };
+    // parse_git_filter_export_via_channel(filter.branch, filter.with_data, empty_cb).unwrap();
+
+
+    let filter_opts = FilterOptions {
+        stream: stdout(),
+        branch: filter.branch,
+        with_blobs: filter.with_data,
     };
-    parse_git_filter_export_via_channel(filter.branch, filter.with_data, empty_cb).unwrap();
+    let v = vec![];
+
+    let _ = filter_with_rules(filter_opts, v);
 }
