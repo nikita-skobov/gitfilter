@@ -1,5 +1,5 @@
 use super::export_parser;
-use export_parser::StructuredExportObject;
+use export_parser::{CommitObject, StructuredExportObject, StructuredCommit};
 use std::io::Write;
 use std::io;
 
@@ -7,6 +7,7 @@ pub enum FilterRule {
     FilterRulePathInclude(String),
     FilterRulePathExclude(String),
 }
+pub use FilterRule::*;
 
 pub type FilterRules = Vec<FilterRule>;
 
@@ -35,12 +36,36 @@ impl<T: Write> From<T> for FilterOptions<T> {
     }
 }
 
+pub fn perform_filer(
+    obj: &mut StructuredExportObject,
+    commit: &mut StructuredCommit,
+    filter_rules: &FilterRules,
+) -> bool {
+    let mut should_use = true;
+    for filter_rule in filter_rules {
+        match filter_rule {
+            FilterRulePathExclude(_) => {}
+            FilterRulePathInclude(include) => {
+                // we only include this path
+            }
+        }
+    }
+    should_use
+}
+
 pub fn filter_with_rules<T: Write>(
     filter_options: FilterOptions<T>,
-    _filter_rules: FilterRules,
+    filter_rules: FilterRules,
 ) -> io::Result<()> {
-    let cb = |_obj: &mut StructuredExportObject| -> bool {
+    eprintln!("Using branch: {:?}", filter_options.branch);
+    let cb = |obj: &mut StructuredExportObject| -> bool {
         true
+        // TODO:
+        // match &mut obj.object_type {
+        //     export_parser::StructuredObjectType::Blob(_) => true,
+        //     export_parser::StructuredObjectType::Commit(ref mut c) => perform_filer(
+        //         obj, &mut c, &filter_rules)
+        // }
     };
     filter_with_cb(filter_options, cb)
 }

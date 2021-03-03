@@ -59,7 +59,8 @@ fn main() {
         branch: filter.branch,
         with_blobs: filter.with_data,
     };
-    let v = vec![];
+    let pathrule = FilterRulePathInclude(filter.path);
+    let v = vec![pathrule];
 
     let _ = filter_with_rules(filter_opts, v);
 }
